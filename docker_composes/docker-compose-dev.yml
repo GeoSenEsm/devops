@@ -1,0 +1,39 @@
+version: '3.8'
+
+services:
+  database:
+    image: mcr.microsoft.com/mssql/server:2019-latest
+    pull_policy: always
+    ports:
+      - 1433:1433
+    environment:
+      ACCEPT_EULA: Y
+      MSSQL_SA_PASSWORD: P@ssword123
+      MSSQL_PID: Developer
+    volumes:
+      - mssql-data:/var/opt/mssql
+
+  api:
+    image: ghcr.io/projekt-inzynierski/survey-api:dev
+    pull_policy: always
+    ports:
+      - 8080:8080
+    depends_on:
+      - database
+    environment:
+      SPRING_DATASOURCE_URL: jdbc:sqlserver://database:1433;databaseName=master;trustServerCertificate=true;encrypt=false;user=sa;password=P@ssword123;
+      SPRING_DATASOURCE_USER: sa
+      SPRING_DATASOURCE_PASSWORD: P@ssword123
+      SPRING_FLYWAY_PASSWORD: P@ssword123
+      SPRING_FLYWAY_USER: sa
+
+  admin-panel:
+    image: ghcr.io/projekt-inzynierski/survey-admin-panel:dev
+    pull_policy: always
+    depends_on: 
+      - api
+    ports:
+      - 80:80
+
+volumes:
+  mssql-data:
