@@ -16,3 +16,11 @@ The state of the application you run with this guide is the current `develop` br
 - admin panel is available under `80` port, API under `8080`
 
 Note, that when you run this for the first time it may need some time to pull all the containers required. 
+
+## Additional optional setup:
+
+If you want, you can set `API_URL` environmental variable to configure api url different that `http://localhost:8080`:
+
+```bash
+export API_URL="<your endpoint>"
+```
