@@ -26,6 +26,8 @@ services:
       SPRING_DATASOURCE_PASSWORD: P@ssword123
       SPRING_FLYWAY_PASSWORD: P@ssword123
       SPRING_FLYWAY_USER: sa
+    volumes:
+      - imagevolume:/uploads
 
   admin-panel:
     image: ghcr.io/projekt-inzynierski/survey-admin-panel:dev
@@ -39,3 +41,4 @@ services:
 
 volumes:
   mssql-data:
+  imagevolume:
