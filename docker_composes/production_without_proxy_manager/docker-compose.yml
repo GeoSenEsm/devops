@@ -1,0 +1,91 @@
+version: '3.8'
+services:
+  production-database:
+    image: mcr.microsoft.com/mssql/server:2019-latest
+    pull_policy: always
+    environment:
+      ACCEPT_EULA: Y
+      MSSQL_SA_PASSWORD: ${DATABASE_PASSWORD}
+      MSSQL_PID: Express
+    volumes:
+      - production-mssql-data:/var/opt/mssql
+      - ./init.sql:/var/opt/mssql/init.sql
+    command: >
+      /bin/bash -c "sleep 15 &&
+      /opt/mssql-tools/bin/sqlcmd -S localhost -U sa -P ${DATABASE_PASSWORD} -i /var/opt/mssql/init.sql &&
+      /opt/mssql/bin/sqlservr"
+
+  production-api:
+    image: ghcr.io/projekt-inzynierski/survey-api:prod
+    pull_policy: always
+    ports:
+      - 8080:8080
+    depends_on:
+      - production-database
+    environment:
+      SPRING_DATASOURCE_URL: jdbc:sqlserver://database:1433;databaseName=Prod;trustServerCertificate=true;encrypt=false;user=sa;password=${DATABASE_PASSWORD};
+      SPRING_DATASOURCE_USER: sa
+      SPRING_DATASOURCE_PASSWORD: ${DATABASE_PASSWORD}
+      SPRING_FLYWAY_PASSWORD: ${DATABASE_PASSWORD}
+      SPRING_FLYWAY_USER: sa
+      ADMIN_USER_PASSWORD: ${ADMIN_USER_PASSWORD}
+    volumes:
+      - production-api-imagevolume:/uploads
+  
+  production-admin-panel:
+    image: ghcr.io/projekt-inzynierski/survey-admin-panel:prod
+    ports:
+      - 8081:80
+    pull_policy: always
+    depends_on: 
+      - production-api
+    environment:
+      API_URL: ${PRODUCTION_API_URL}
+
+  test-database:
+    image: mcr.microsoft.com/mssql/server:2019-latest
+    pull_policy: always
+    environment:
+      ACCEPT_EULA: Y
+      MSSQL_SA_PASSWORD: P@ssword123
+      MSSQL_PID: Developer
+    volumes:
+      - test-mssql-data:/var/opt/mssql
+
+  test-api:
+    image: ghcr.io/projekt-inzynierski/survey-api:prod
+    pull_policy: always
+    ports:
+      - 8082:8080
+    depends_on:
+      - test-database
+    environment:
+      SPRING_DATASOURCE_URL: jdbc:sqlserver://database:1433;databaseName=master;trustServerCertificate=true;encrypt=false;user=sa;password=P@ssword123;
+      SPRING_DATASOURCE_USER: sa
+      SPRING_DATASOURCE_PASSWORD: P@ssword123
+      SPRING_FLYWAY_PASSWORD: P@ssword123
+      SPRING_FLYWAY_USER: sa
+      ADMIN_USER_PASSWORD: ${TEST_ADMIN_USER_PASSWORD:-qwerty}
+    volumes:
+      - test-api-imagevolume:/uploads
+
+  test-admin-panel:
+    image: ghcr.io/projekt-inzynierski/survey-admin-panel:prod
+    ports:
+      - 8083:80
+    pull_policy: always
+    depends_on: 
+      - test-api
+    environment:
+      API_URL: ${TEST_API_URL:-http://localhost:8080}
+
+  privacy_policy:
+    image: nginx:latest
+    volumes:
+      - ./privacy_policy:/usr/share/nginx/html/privacy_policy
+
+volumes:
+  production-api-imagevolume:
+  production-mssql-data:
+  test-api-imagevolume:
+  test-mssql-data:
