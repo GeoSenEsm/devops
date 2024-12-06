@@ -8,7 +8,7 @@ The state of the application you run with this guide is the current `develop` br
 
 ## Steps
 
-- download the `docker_composes/docker-compose-dev.yml` file from this repository
+- download the `docker_composes/dev/docker-compose.yml` file from this repository
 - open shell (bash on Linux, Powershell on Windows)
 - navigate to the directory, where the downloaded file is located
 - run `docker-compose -f docker-compose-dev.yml up`
