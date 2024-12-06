@@ -24,6 +24,7 @@ services:
       SPRING_DATASOURCE_PASSWORD: P@ssword123
       SPRING_FLYWAY_PASSWORD: P@ssword123
       SPRING_FLYWAY_USER: sa
+      ADMIN_USER_PASSWORD: ${ADMIN_USER_PASSWORD:-qwerty}
     volumes:
       - imagevolume:/uploads
 
