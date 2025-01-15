@@ -1,23 +1,28 @@
-# DevOps repository for the UrbEat survey project
-This repository contains detailed instructions of how you can start:
+# DevOps repository for the GeoSenEsm system
+This repository contains detailed instructions of how you can setup the production environment for:
 - the REST API 
 - admin panel
 
 ## Initial condictions
 
-To successfully run the project your machine needs to meet these conditions:
+To be able to setup the environment in most basic scenario, you need at least one server. It needs to meet these conditions:
 - docker installed and running
-- docker-compose installed (on Windows it is auto installed with Docker Desktop, on Linux it has to be installed separately)
-- if you use Windows, you also need to have WSL, as all of the containers are on based on some Linux images
+- docker-compose installed
 
-## Login to ghcr
+Also, we'll assume you already have properly configured network, certificates etc.
 
-To be able to pull proper docker images you need to be authenticated to GitHub Docker Container Registry. Therefore you need an access token (contact with organization owner to get one). If you have a token you can authenticate with:
+## Docker images
 
-```
-docker login ghcr.io -u projekt-inzynierski -p <token>
-```
+You need to build the docker images  for both REST API, and the administrator panel. To do so,
+visit the repositories:
+- [Admin panel](https://github.com/projekt-inzynierski/survey-admin-panel)
+- [API](https://github.com/projekt-inzynierski/survey-api)
 
-where `<token>` is your access token.
+and follow the instructions in their `README` files. Also, you probably need to use some docker container registry, to be able to easily pull the built images on the server, where you want to setup the environment. In the further steps of the guid we'll assume, that the images are already built and pulled to the server with names:
+- `api-image`
+- `admin-image`
 
-For more details visit the `docs` directory in this repository
+# Environment setup
+
+To finally setup the environment, follow the detailed instructions for the variant you're interested in:
+1. [I have one server for the system and separate MSSQL server](variants/separate_mssql//separate_mssql.md)

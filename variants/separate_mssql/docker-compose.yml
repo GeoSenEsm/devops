@@ -1,0 +1,30 @@
+version: '3.8'
+
+services:
+  api:
+    image: api-image
+    ports:
+      - 8080:8080
+    environment:
+      SPRING_DATASOURCE_URL: ${DATABASE_CONNECTION_STRING}
+      SPRING_DATASOURCE_USER: ${DATABASE_USER}
+      SPRING_DATASOURCE_PASSWORD: ${DATABASE_PASSWORD}
+      SPRING_FLYWAY_PASSWORD: ${DATABASE_PASSWORD}
+      SPRING_FLYWAY_USER: ${DATABASE_USER}
+      ADMIN_USER_PASSWORD: ${ADMIN_USER_PASSWORD:-qwerty}
+      JWT_KEY: ${JWT_KEY}
+      JWT_EXPIRAION: ${JWT_EXPIRAION}
+    volumes:
+      - imagevolume:/uploads
+
+  admin-panel:
+    image: admin-image
+    depends_on: 
+      - api
+    environment:
+      API_URL: ${API_URL:-http://localhost:8080}
+    ports:
+      - 80:80
+
+volumes:
+  imagevolume:
