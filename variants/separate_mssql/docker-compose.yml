@@ -1,10 +1,8 @@
-version: '3.8'
-
 services:
   api:
     image: api-image
     ports:
-      - 8080:8080
+      - 8083:8080
     environment:
       SPRING_DATASOURCE_URL: ${DATABASE_CONNECTION_STRING}
       SPRING_DATASOURCE_USER: ${DATABASE_USER}
@@ -24,7 +22,7 @@ services:
     environment:
       API_URL: ${API_URL:-http://localhost:8080}
     ports:
-      - 80:80
+      - 8084:80
 
 volumes:
   imagevolume:
