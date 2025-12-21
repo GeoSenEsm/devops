@@ -1,0 +1,52 @@
+services:
+  database:
+    image: mcr.microsoft.com/mssql/server:2019-latest
+    pull_policy: always
+    environment:
+      ACCEPT_EULA: Y
+      MSSQL_SA_PASSWORD: ${DATABASE_PASSWORD}
+      MSSQL_PID: Express
+    volumes:
+      - ./mssql-data:/var/opt/mssql
+
+  db-init:
+    image: mcr.microsoft.com/mssql-tools
+    depends_on:
+      - database
+    entrypoint: /bin/bash -c "
+      sleep 10;
+      /opt/mssql-tools/bin/sqlcmd -S database -U sa -P '${DATABASE_PASSWORD}' -Q \"IF DB_ID('GeoSenEsm') IS NULL CREATE DATABASE GeoSenEsm;\""
+
+  api:
+    image: api-image
+    pull_policy: always
+    ports:
+      - 8083:8080
+    depends_on:
+      - database
+    environment:
+      SPRING_DATASOURCE_URL: jdbc:sqlserver://database:1433;databaseName=GeoSenEsm;trustServerCertificate=true;encrypt=false;user=sa;password={DATABASE_PASSWORD};
+      SPRING_DATASOURCE_USER: sa
+      SPRING_DATASOURCE_PASSWORD: ${DATABASE_PASSWORD}
+      SPRING_FLYWAY_PASSWORD: ${DATABASE_PASSWORD}
+      SPRING_FLYWAY_USER: sa
+      ADMIN_USER_PASSWORD: ${ADMIN_USER_PASSWORD:-qwerty}
+      JWT_KEY: ${JWT_KEY:-SOME_PRIVATE_KEY_DONT_SHARE}
+    volumes:
+      - imagevolume:/uploads
+    env_file:
+      - .env
+
+  admin-panel:
+    image: admin-image
+    pull_policy: always
+    depends_on:
+      - api
+    environment:
+      API_URL: ${API_URL:-http://localhost:8080}
+    ports:
+      - 8084:80
+
+volumes:
+  mssql-data:
+  imagevolume:
