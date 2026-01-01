@@ -20,8 +20,8 @@ If needed, modify the `docker-compose.yml` file so that the services are redirec
 ### Environment variables
 
 As you can see, there are some environment variables used in the `docker-compose.yml`. For each of them, you can read what it is responsible for in the appropriate repository:
-- https://github.com/projekt-inzynierski/survey-api for the api service
-- https://github.com/projekt-inzynierski/survey-admin-panel for the admin-panel service
+- https://github.com/GeoSenEsm/survey-api for the api service
+- https://github.com/GeoSenEsm/survey-admin-panel for the admin-panel service
 
 Here, only required and most important ones are described
 
