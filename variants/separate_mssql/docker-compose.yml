@@ -1,6 +1,6 @@
 services:
   api:
-    image: api-image
+    image: ghcr.io/geosenesm/survey-api:prod
     ports:
       - 8083:8080
     environment:
@@ -16,7 +16,7 @@ services:
       - imagevolume:/uploads
 
   admin-panel:
-    image: admin-image
+    image: ghcr.io/geosenesm/survey-admin-panel:prod
     depends_on: 
       - api
     environment:

@@ -18,12 +18,12 @@ services:
       /opt/mssql-tools/bin/sqlcmd -S database -U sa -P '${DATABASE_PASSWORD}' -Q \"IF DB_ID('GeoSenEsm') IS NULL CREATE DATABASE GeoSenEsm;\""
 
   api:
-    image: api-image
+    image: ghcr.io/geosenesm/survey-api:prod
     pull_policy: always
     ports:
       - 8083:8080
     depends_on:
-      - database
+      - db-init
     environment:
       SPRING_DATASOURCE_URL: jdbc:sqlserver://database:1433;databaseName=GeoSenEsm;trustServerCertificate=true;encrypt=false;user=sa;password={DATABASE_PASSWORD};
       SPRING_DATASOURCE_USER: sa
@@ -38,7 +38,7 @@ services:
       - .env
 
   admin-panel:
-    image: admin-image
+    image: ghcr.io/geosenesm/survey-admin-panel:prod
     pull_policy: always
     depends_on:
       - api
