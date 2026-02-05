@@ -49,8 +49,8 @@ server {
         proxy_cache_bypass $http_upgrade;
     }
 
-    location /privacy-policy {
-        root /var/www/html/privacy-policy;
+    location /privacy-policy/ {
+        root /var/www/html;
         try_files $uri $uri/ =404;
     }
 }
@@ -68,8 +68,8 @@ server {
         proxy_cache_bypass $http_upgrade;
     }
 
-    location /privacy-policy {
-        root /var/www/html/privacy-policy;
+    location /privacy-policy/ {
+        root /var/www/html;
         try_files $uri $uri/ =404;
     }
 }
