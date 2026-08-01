@@ -17,6 +17,11 @@ services:
       sleep 10;
       /opt/mssql-tools/bin/sqlcmd -S database -U sa -P '${DATABASE_PASSWORD}' -Q \"IF DB_ID('GeoSenEsm') IS NULL CREATE DATABASE GeoSenEsm;\""
 
+  mongo:
+    image: mongo:7.0
+    volumes:
+      - ./mongo-data:/data/db
+
   api:
     image: ghcr.io/geosenesm/survey-api:prod
     pull_policy: always
@@ -24,12 +29,15 @@ services:
       - 8083:8080
     depends_on:
       - db-init
+      - mongo
     environment:
-      SPRING_DATASOURCE_URL: jdbc:sqlserver://database:1433;databaseName=GeoSenEsm;trustServerCertificate=true;encrypt=false;user=sa;password={DATABASE_PASSWORD};
+      SPRING_DATASOURCE_URL: jdbc:sqlserver://database:1433;databaseName=GeoSenEsm;trustServerCertificate=true;encrypt=false;user=sa;password=${DATABASE_PASSWORD};
       SPRING_DATASOURCE_USER: sa
       SPRING_DATASOURCE_PASSWORD: ${DATABASE_PASSWORD}
       SPRING_FLYWAY_PASSWORD: ${DATABASE_PASSWORD}
       SPRING_FLYWAY_USER: sa
+      SPRING_DATA_MONGODB_URI: mongodb://mongo:27017/GeoSenEsm
+      SPRING_DATA_MONGODB_DATABASE: GeoSenEsm
       ADMIN_USER_PASSWORD: ${ADMIN_USER_PASSWORD:-qwerty}
       JWT_KEY: ${JWT_KEY:-SOME_PRIVATE_KEY_DONT_SHARE}
     volumes:
@@ -48,5 +56,4 @@ services:
       - 8084:80
 
 volumes:
-  mssql-data:
   imagevolume:

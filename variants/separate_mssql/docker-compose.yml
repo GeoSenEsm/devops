@@ -1,6 +1,13 @@
 services:
+  mongo:
+    image: mongo:7.0
+    volumes:
+      - mongo-data:/data/db
+
   api:
     image: ghcr.io/geosenesm/survey-api:prod
+    depends_on:
+      - mongo
     ports:
       - 8083:8080
     environment:
@@ -9,15 +16,17 @@ services:
       SPRING_DATASOURCE_PASSWORD: ${DATABASE_PASSWORD}
       SPRING_FLYWAY_PASSWORD: ${DATABASE_PASSWORD}
       SPRING_FLYWAY_USER: ${DATABASE_USER}
+      SPRING_DATA_MONGODB_URI: mongodb://mongo:27017/GeoSenEsm
+      SPRING_DATA_MONGODB_DATABASE: GeoSenEsm
       ADMIN_USER_PASSWORD: ${ADMIN_USER_PASSWORD:-qwerty}
       JWT_KEY: ${JWT_KEY}
-      JWT_EXPIRAION: ${JWT_EXPIRAION}
+      JWT_EXPIRATION: ${JWT_EXPIRATION}
     volumes:
       - imagevolume:/uploads
 
   admin-panel:
     image: ghcr.io/geosenesm/survey-admin-panel:prod
-    depends_on: 
+    depends_on:
       - api
     environment:
       API_URL: ${API_URL:-http://localhost:8080}
@@ -25,4 +34,5 @@ services:
       - 8084:80
 
 volumes:
+  mongo-data:
   imagevolume:
