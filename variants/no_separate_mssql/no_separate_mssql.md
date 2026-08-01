@@ -1,18 +1,21 @@
 # Setup without separate MSSQL Server
 
+SQL Server and MongoDB both run in Docker on the same machine as the API
+and admin panel.
+
 ## Go to location you want to place the docker file in, for example home directory
 
 ```bash
 cd ~
 ```
 
-## Create db data directory
+## Create data directories
 
 Run
 
 ```bash
-mkdir mssql-data
-sudo chmod 777 mssql-data
+mkdir mssql-data mongo-data
+sudo chmod 777 mssql-data mongo-data
 ```
 
 ## Run docker compose
@@ -39,6 +42,11 @@ services:
       sleep 10;
       /opt/mssql-tools/bin/sqlcmd -S database -U sa -P '${DATABASE_PASSWORD}' -Q \"IF DB_ID('GeoSenEsm') IS NULL CREATE DATABASE GeoSenEsm;\""
 
+  mongo:
+    image: mongo:7.0
+    volumes:
+      - ./mongo-data:/data/db
+
   api:
     image: ghcr.io/geosenesm/survey-api:prod
     pull_policy: always
@@ -46,12 +54,15 @@ services:
       - 8083:8080
     depends_on:
       - db-init
+      - mongo
     environment:
       SPRING_DATASOURCE_URL: jdbc:sqlserver://database:1433;databaseName=GeoSenEsm;trustServerCertificate=true;encrypt=false;user=sa;password=${DATABASE_PASSWORD};
       SPRING_DATASOURCE_USER: sa
       SPRING_DATASOURCE_PASSWORD: ${DATABASE_PASSWORD}
       SPRING_FLYWAY_PASSWORD: ${DATABASE_PASSWORD}
       SPRING_FLYWAY_USER: sa
+      SPRING_DATA_MONGODB_URI: mongodb://mongo:27017/GeoSenEsm
+      SPRING_DATA_MONGODB_DATABASE: GeoSenEsm
       ADMIN_USER_PASSWORD: ${ADMIN_USER_PASSWORD:-qwerty}
       JWT_KEY: ${JWT_KEY:-SOME_PRIVATE_KEY_DONT_SHARE}
     volumes:
@@ -70,7 +81,6 @@ services:
       - 8084:80
 
 volumes:
-  mssql-data:
   imagevolume:
 ```
 
@@ -78,11 +88,13 @@ volumes:
 
 If needed, modify the `docker-compose.yml` file so that the services are redirected to proper external ports. By default, the ports are set to match the ports from the Nginx example configuration mentioned in the previous steps of the documentation, so you don't have to change anything.
 
+MongoDB is only reachable inside the Docker network (no host port published).
+
 ### Environment variables
 
 As you can see, there are some environment variables used in the `docker-compose.yml`. For each of them, you can read what it is responsible for in the appropriate repository, if you are interested:
-- https://github.com/projekt-inzynierski/survey-api for the api service
-- https://github.com/projekt-inzynierski/survey-admin-panel for the admin-panel service
+- https://github.com/GeoSenEsm/survey-api for the api service
+- https://github.com/GeoSenEsm/survey-admin-panel for the admin-panel service
 
 Here, only required and most important ones are described
 
@@ -90,6 +102,10 @@ Here, only required and most important ones are described
 - `ADMIN_USER_PASSWORD`: set password for the administrator account (can be changed later in the system)
 - `API_URL`: URL where the API (api service) will be available from the Internet. By default it is `http://localhost:8080`. This value will be used in the admin panel for making API requests. Replace with your api domain, e.g. `https://api.mydomain.com`.
 - `DATABASE_PASSWORD`: set password to the database. It has to meet MSSQL conditions: **"The password must be at least 8 characters long and contain characters from three of the following four sets: Uppercase letters, Lowercase letters, Base 10 digits, and Symbols."**
+
+MongoDB is configured in Compose (`SPRING_DATA_MONGODB_URI` /
+`SPRING_DATA_MONGODB_DATABASE` pointing at the `mongo` service). Persist
+data under `./mongo-data` on the host.
 
 Place all of the environment variables in the `.env` file, in the same directory where you've placed `docker-compose.yml`.
 
