@@ -456,6 +456,11 @@ server {
     listen 80;
     server_name __API_DOMAIN__;
 
+    # Nginx's own default (1M) is smaller than uploads the API itself accepts
+    # (e.g. survey option images), so raise it here or every such upload gets
+    # silently rejected with a 413 before it ever reaches the app.
+    client_max_body_size 10M;
+
     location / {
         proxy_pass http://127.0.0.1:__API_PORT__;
         proxy_http_version 1.1;
