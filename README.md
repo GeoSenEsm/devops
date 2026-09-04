@@ -18,6 +18,36 @@ hosting for the mobile app.
 
 ---
 
+## Fast path (recommended)
+
+`deploy.sh` automates everything below: it writes the right `docker-compose.yml`
+and `.env` for your chosen variant, starts the containers, and — when you give
+it a domain — configures Nginx and requests a Let's Encrypt certificate too.
+
+```bash
+git clone https://github.com/GeoSenEsm/devops.git
+cd devops
+chmod +x deploy.sh
+
+# Domain + automatic TLS
+./deploy.sh --domain example.com --email admin@example.com \
+            --admin-password 'S3cretAdmin!' --db-password 'Str0ng!Passw0rd'
+
+# Bare IP, no domain yet (services published directly on 8083/8084)
+./deploy.sh --ip 203.0.113.10 \
+            --admin-password 'S3cretAdmin!' --db-password 'Str0ng!Passw0rd'
+```
+
+Run it with no flags for an interactive walkthrough, or `./deploy.sh --help`
+for every option (external SQL Server, custom ports, skipping Nginx/TLS,
+installing Docker itself, etc.). It's safe to re-run — it only rewrites the
+generated compose/.env files and re-applies `docker compose up -d`.
+
+The manual, step-by-step version of the same process (useful to understand
+what the script does, or to adapt it) is documented below.
+
+---
+
 ## What you end up with
 
 ```
@@ -44,6 +74,7 @@ Mobile app respondents enter `https://api.mydomain.com` as `apiUrl` on login.
 | Path                              | Purpose                                                              |
 | --------------------------------- | -------------------------------------------------------------------- |
 | `README.md`                       | This file — full server runbook                                      |
+| `deploy.sh`                       | Automated deploy: generates Compose/`.env`, starts Docker, configures Nginx + TLS |
 | `variants/separate_mssql/`        | External SQL Server; MongoDB + API + admin in Docker on the app host |
 | `variants/no_separate_mssql/`     | SQL Server + MongoDB + API + admin all in Docker on one VM           |
 | `variants/*/docker-compose.yml`   | Compose files to copy onto the server                                |
@@ -53,6 +84,7 @@ Mobile app respondents enter `https://api.mydomain.com` as `apiUrl` on login.
 ```
 devops/
 ├── README.md
+├── deploy.sh
 └── variants/
     ├── separate_mssql/
     │   ├── docker-compose.yml
@@ -126,6 +158,11 @@ sudo mkdir -p /var/www/html/privacy-policy
 server {
     listen 80;
     server_name api.mydomain.com;
+
+    # Nginx's own default (1M) is smaller than uploads the API itself accepts
+    # (e.g. survey option images), so raise it here or every such upload gets
+    # silently rejected with a 413 before it ever reaches the app.
+    client_max_body_size 10M;
 
     location / {
         proxy_pass http://127.0.0.1:8083;
