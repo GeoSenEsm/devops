@@ -346,7 +346,7 @@ if [ -n "$INSTANCES_FILE" ] || [ -n "$INSTANCE_NAMES" ]; then
   done
 
   log "Instances deployed: ${succeeded[*]:-none}"
-  [ ${#failed[@]} -eq 0 ] || err "Instances failed: ${failed[*]}"
+  [ ${#failed[@]} -eq 0 ] || err "Instances failed: ${failed[*]}. To undo them: ./undeploy.sh --names $(IFS=,; echo "${failed[*]}")"
   exit 0
 fi
 
@@ -465,6 +465,8 @@ done
 # ---------------------------------------------------------------------------
 # Write deploy directory: compose file, data dirs, .env
 # ---------------------------------------------------------------------------
+UNDO_HINT="To undo this instance: ./undeploy.sh --name $NAME$([ "$DEPLOY_DIR" = "${HOME:-.}/$NAME" ] || printf ' --deploy-dir %q' "$DEPLOY_DIR")"
+trap 'warn "Deploy failed. $UNDO_HINT"' ERR
 mkdir -p "$DEPLOY_DIR"
 log "Deploy directory: $DEPLOY_DIR"
 
@@ -744,7 +746,7 @@ if require_cmd curl; then
   if [ "$ready" = true ]; then
     log "API is healthy."
   else
-    warn "API did not report healthy within 2.5 minutes — check: $DOCKER compose -f '$DEPLOY_DIR/docker-compose.yml' logs -f api"
+    warn "API did not report healthy within 2.5 minutes — check: $DOCKER compose -f '$DEPLOY_DIR/docker-compose.yml' logs -f api — $UNDO_HINT"
   fi
 else
   warn "curl not found — skipping health check."

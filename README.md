@@ -99,6 +99,27 @@ rest still run. Each single-server instance runs its own SQL Server container
 instance its own `--db-name`. Point DNS for every hostname at the server before
 running so certbot can issue the certificates.
 
+### Undo a deploy
+
+If a deploy fails (the script prints the exact undo command), or you want to
+remove an instance, run `undeploy.sh` with the same name(s):
+
+```bash
+./undeploy.sh                          # default instance
+./undeploy.sh --names shop,lab         # instances from --names / --instances
+./undeploy.sh --name staging --delete-data --delete-certs   # wipe completely
+```
+
+It shows what it will remove and asks before doing anything (`--yes` skips the
+question). By default it removes the containers and the instance's Nginx site
+but **keeps the data and `.env`**, so the next `deploy.sh` run reuses the same
+database and passwords. `--delete-data` also deletes the database, uploads and
+deploy dir — you must type the instance name to confirm. `--delete-certs`
+removes the Let's Encrypt certificate; leave it out if you'll retry soon, as
+Let's Encrypt limits how often a certificate can be reissued. Installed
+packages (Docker, Nginx, certbot), the privacy-policy folder and other
+instances are never touched.
+
 The manual, step-by-step version of the same process (useful to understand
 what the script does, or to adapt it) is documented below.
 
@@ -131,6 +152,7 @@ Mobile app respondents enter `https://api.mydomain.com` as `apiUrl` on login.
 | --------------------------------- | -------------------------------------------------------------------- |
 | `README.md`                       | This file — full server runbook                                      |
 | `deploy.sh`                       | Automated deploy: generates Compose/`.env`, starts Docker, configures Nginx + TLS |
+| `undeploy.sh`                     | Undo `deploy.sh` for one or more instances (data kept unless `--delete-data`) |
 | `variants/separate_mssql/`        | External SQL Server; MongoDB + API + admin in Docker on the app host |
 | `variants/no_separate_mssql/`     | SQL Server + MongoDB + API + admin all in Docker on one VM           |
 | `variants/*/docker-compose.yml`   | Compose files to copy onto the server                                |
@@ -141,6 +163,7 @@ Mobile app respondents enter `https://api.mydomain.com` as `apiUrl` on login.
 devops/
 ├── README.md
 ├── deploy.sh
+├── undeploy.sh
 └── variants/
     ├── separate_mssql/
     │   ├── docker-compose.yml
