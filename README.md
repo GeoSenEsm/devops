@@ -10,7 +10,7 @@ hosting for the mobile app.
 | ----------------- | ---------------------------------------------------------------------------------------- |
 | Role              | Server setup docs + Compose variants (not application source)                            |
 | Host              | Ubuntu with Docker and Nginx                                                             |
-| Container images  | `ghcr.io/geosenesm/survey-api:prod`, `ghcr.io/geosenesm/survey-admin-panel:prod`         |
+| Container images  | `ghcr.io/geosenesm/survey-api:prod`, `ghcr.io/geosenesm/survey-admin-panel:prod` (other tags via `--api-tag` / `--admin-tag`) |
 | Host ports        | API `8083` → container `8080`; admin `8084` → container `80` (match the Nginx examples) |
 | Domains (example) | `api.mydomain.com`, `admin.mydomain.com`                                                 |
 | Product repos     | `survey-api`, `survey-admin-panel`, `mobile-app`                                         |
@@ -39,9 +39,65 @@ chmod +x deploy.sh
 ```
 
 Run it with no flags for an interactive walkthrough, or `./deploy.sh --help`
-for every option (external SQL Server, custom ports, skipping Nginx/TLS,
-installing Docker itself, etc.). It's safe to re-run — it only rewrites the
-generated compose/.env files and re-applies `docker compose up -d`.
+for every option (external SQL Server, custom ports, image versions, several
+instances, skipping Nginx/TLS, installing Docker itself, etc.). It's safe to
+re-run — it only rewrites the generated compose/.env files (keeping the
+existing `JWT_KEY`, so users stay logged in) and re-applies `docker compose up -d`.
+
+### Several instances on one host
+
+**Simple mode** — list the names, the script picks the addresses and ports:
+
+```bash
+./deploy.sh --names shop,lab --domain example.com --email admin@example.com
+```
+
+| Instance | Admin panel                    | API (`apiUrl` in the mobile app) | Host ports  |
+| -------- | ------------------------------ | -------------------------------- | ----------- |
+| `shop`   | `https://shop-admin.example.com` | `https://shop-api.example.com`   | 8083 / 8084 |
+| `lab`    | `https://lab-admin.example.com`  | `https://lab-api.example.com`    | 8085 / 8086 |
+
+Ports count up in pairs from `--api-port` (default 8083). Before running, point
+DNS for every `NAME-api` / `NAME-admin` hostname at the server — a single
+wildcard record `*.example.com` covers all of them. The script asks for each
+instance's admin and database password unless you pass `--admin-password` /
+`--db-password` (then all instances share them). With `--ip` instead of
+`--domain` you get the same instances on ports only, without Nginx/TLS.
+
+**Advanced** — give each instance its own `--name` and ports. The name becomes the Compose
+project, the Nginx site (`/etc/nginx/sites-available/NAME`) and the default
+deploy dir (`$HOME/NAME`), so instances never overwrite each other. Pick the
+image version with `--api-tag` / `--admin-tag` (`prod`, `test`, or a release
+tag such as `v3.0.0`) and the exact hostnames with `--api-domain` /
+`--admin-domain` when `api.DOMAIN` / `admin.DOMAIN` doesn't fit.
+
+```bash
+./deploy.sh --name staging --api-tag test --admin-tag test \
+            --api-domain api-staging.example.com --admin-domain admin-staging.example.com \
+            --api-port 8093 --admin-port 8094 --email admin@example.com \
+            --admin-password 'S3cretAdmin!' --db-password 'Str0ng!Passw0rd'
+```
+
+To deploy several at once, list one instance per line in a manifest. Flags on
+the command line apply to every instance; flags on a line override them.
+
+```bash
+cat > instances.conf <<'EOF'
+# one line of deploy.sh flags per instance; --name is required
+--name prod    --domain example.com --api-port 8083 --admin-port 8084
+--name staging --api-tag test --admin-tag test --api-port 8093 --admin-port 8094 --api-domain api-staging.example.com --admin-domain admin-staging.example.com
+--name v3      --api-tag v3.0.0 --admin-tag v3.0.0 --api-port 8103 --admin-port 8104 --api-domain api-v3.example.com --admin-domain admin-v3.example.com
+EOF
+
+./deploy.sh --instances instances.conf --email admin@example.com \
+            --admin-password 'S3cretAdmin!' --db-password 'Str0ng!Passw0rd'
+```
+
+Instances are deployed one after another; a failing one is reported and the
+rest still run. Each single-server instance runs its own SQL Server container
+(plan roughly 2 GB RAM per instance); with an external SQL Server give each
+instance its own `--db-name`. Point DNS for every hostname at the server before
+running so certbot can issue the certificates.
 
 The manual, step-by-step version of the same process (useful to understand
 what the script does, or to adapt it) is documented below.

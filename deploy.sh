@@ -29,13 +29,29 @@
 #               --db-user sa --db-password 'mypsswd' \
 #               --admin-password 'S3cretAdmin!'
 #
+# Several instances side by side on one host (each gets its own Compose
+# project, deploy dir, Nginx site and image version):
+#   ./deploy.sh --name prod --domain example.com ...
+#   ./deploy.sh --name staging --api-tag test --admin-tag test \
+#               --api-domain api-staging.example.com --admin-domain admin-staging.example.com \
+#               --api-port 8093 --admin-port 8094 ...
+# or all at once from a manifest (one line of flags per instance):
+#   ./deploy.sh --instances instances.conf --email admin@example.com
+#
+# Simple mode — just list names; shop-api.example.com / shop-admin.example.com
+# on ports 8083/8084, lab-api.example.com / lab-admin.example.com on 8085/8086:
+#   ./deploy.sh --names shop,lab --domain example.com
+#
 set -euo pipefail
 
 # ---------------------------------------------------------------------------
 # Defaults
 # ---------------------------------------------------------------------------
+NAME="geosenesm"
 VARIANT=""
 DOMAIN=""
+API_DOMAIN=""
+ADMIN_DOMAIN=""
 IP=""
 EMAIL=""
 ADMIN_PASSWORD=""
@@ -49,7 +65,11 @@ JWT_EXPIRATION="180"
 ALLOWED_ORIGINS=""
 API_PORT="8083"
 ADMIN_PORT="8084"
-DEPLOY_DIR="${HOME:-.}/geosenesm"
+API_TAG="prod"
+ADMIN_TAG="prod"
+DEPLOY_DIR=""
+INSTANCES_FILE=""
+INSTANCE_NAMES=""
 SKIP_NGINX=false
 SKIP_TLS=false
 INSTALL_DOCKER=false
@@ -70,10 +90,32 @@ usage() {
   cat <<EOF
 Usage: $SCRIPT_NAME [options]
 
+Instance:
+  --name NAME                Instance name (default: geosenesm). Used as the
+                              Compose project name, the Nginx site name and the
+                              default deploy dir. Give every instance on the
+                              same host its own name and ports.
+  --api-tag TAG              survey-api image tag, e.g. prod, test, v3.0.0
+                              (default: prod).
+  --admin-tag TAG            survey-admin-panel image tag (default: prod).
+  --instances FILE           Deploy several instances in one run. Each
+                              non-empty, non-# line of FILE holds the flags for
+                              one instance and must include --name. Flags given
+                              on the command line apply to every instance;
+                              flags on a line override them.
+  --names N1,N2,...          Simple mode: deploy one instance per name. With
+                              --domain D they are served at N-api.D and
+                              N-admin.D; with --ip on ports only. Ports count
+                              up from --api-port: N1 gets 8083/8084, N2
+                              8085/8086, and so on.
+
 Target (pick one):
   --domain DOMAIN            Public domain, e.g. example.com. Creates
                               api.DOMAIN and admin.DOMAIN, sets up Nginx +
                               Let's Encrypt (unless --skip-nginx/--skip-tls).
+  --api-domain HOST          Exact API hostname, e.g. api-test.example.com.
+  --admin-domain HOST        Exact admin hostname. Pass both instead of
+                              --domain, or one alongside it to override it.
   --ip IP                    Public/host IP. No Nginx or TLS; services are
                               published directly on --api-port/--admin-port.
 
@@ -103,7 +145,7 @@ Ports / paths:
   --api-port PORT            Host port for survey-api (default: 8083).
   --admin-port PORT          Host port for survey-admin-panel (default: 8084).
   --deploy-dir DIR           Where to write compose/.env/data dirs
-                              (default: \$HOME/geosenesm).
+                              (default: \$HOME/NAME).
 
 Flags:
   --skip-nginx               Don't touch Nginx even if --domain is set.
@@ -150,6 +192,26 @@ generate_secret() {
   fi
 }
 
+validate_instance_name() {
+  [[ "$1" =~ ^[a-z0-9][a-z0-9_-]*$ ]] || err "Instance names must be lowercase letters, digits, '-' or '_' (got: $1)."
+}
+
+prompt_target() {
+  if [ -z "$DOMAIN" ] && [ -z "$IP" ]; then
+    if is_tty; then
+      read -r -p "Public domain (leave empty to use a bare IP instead): " DOMAIN
+      if [ -z "$DOMAIN" ]; then
+        prompt_value IP "Server public IP"
+      fi
+    else
+      err "Pass --domain or --ip (see --help)."
+    fi
+  fi
+  if [ -n "$DOMAIN" ] && [ -n "$IP" ]; then
+    err "Pass only one of --domain / --ip."
+  fi
+}
+
 validate_mssql_password() {
   local pass=$1 classes=0
   [[ "$pass" =~ [A-Z] ]] && classes=$((classes + 1))
@@ -164,9 +226,17 @@ validate_mssql_password() {
 # ---------------------------------------------------------------------------
 # Parse flags
 # ---------------------------------------------------------------------------
+ALL_ARGS=("$@")
 while [ $# -gt 0 ]; do
   case "$1" in
+    --name) NAME="$2"; shift 2 ;;
+    --api-tag) API_TAG="$2"; shift 2 ;;
+    --admin-tag) ADMIN_TAG="$2"; shift 2 ;;
+    --instances) INSTANCES_FILE="$2"; shift 2 ;;
+    --names) INSTANCE_NAMES="$2"; shift 2 ;;
     --domain) DOMAIN="$2"; shift 2 ;;
+    --api-domain) API_DOMAIN="$2"; shift 2 ;;
+    --admin-domain) ADMIN_DOMAIN="$2"; shift 2 ;;
     --ip) IP="$2"; shift 2 ;;
     --variant) VARIANT="$2"; shift 2 ;;
     --admin-password) ADMIN_PASSWORD="$2"; shift 2 ;;
@@ -194,23 +264,110 @@ done
 [ "$(uname -s)" = "Linux" ] || warn "This script targets Linux; behaviour on $(uname -s) is untested."
 
 # ---------------------------------------------------------------------------
+# Multi-instance mode: re-run this script once per instance line, taken from
+# the --instances manifest or generated from --names
+# ---------------------------------------------------------------------------
+if [ -n "$INSTANCES_FILE" ] || [ -n "$INSTANCE_NAMES" ]; then
+  if [ -n "$INSTANCES_FILE" ] && [ -n "$INSTANCE_NAMES" ]; then
+    err "Pass only one of --instances / --names."
+  fi
+
+  common_args=()
+  for ((i = 0; i < ${#ALL_ARGS[@]}; i++)); do
+    case "${ALL_ARGS[$i]}" in
+      --instances|--names) i=$((i + 1)) ;;
+      *) common_args+=("${ALL_ARGS[$i]}") ;;
+    esac
+  done
+
+  split_line() {
+    # xargs splits on whitespace and honours quotes without evaluating anything.
+    mapfile -t line_args < <(printf '%s\n' "$1" | xargs printf '%s\n')
+    instance_name=""
+    for ((i = 0; i < ${#line_args[@]} - 1; i++)); do
+      if [ "${line_args[$i]}" = "--name" ]; then
+        instance_name="${line_args[$((i + 1))]}"
+      fi
+    done
+  }
+
+  # Collect and validate every instance before deploying anything; reading the
+  # manifest up front also keeps stdin free for interactive prompts.
+  instance_lines=()
+  if [ -n "$INSTANCES_FILE" ]; then
+    [ -f "$INSTANCES_FILE" ] || err "Instances file not found: $INSTANCES_FILE"
+    while IFS= read -r line || [ -n "$line" ]; do
+      line="${line%$'\r'}"
+      [[ "$line" =~ ^[[:space:]]*(#|$) ]] && continue
+      instance_lines+=("$line")
+    done < "$INSTANCES_FILE"
+  else
+    for name in ${INSTANCE_NAMES//,/ }; do
+      validate_instance_name "$name"
+    done
+    prompt_target
+    if [ -n "$DOMAIN" ]; then
+      if [ "$SKIP_TLS" != true ] && [ "$SKIP_NGINX" != true ]; then
+        prompt_value EMAIL "Email for Let's Encrypt renewal notices"
+        common_args+=(--email "$EMAIL")
+      fi
+    else
+      common_args+=(--ip "$IP")
+    fi
+    port="$API_PORT"
+    for name in ${INSTANCE_NAMES//,/ }; do
+      target=""
+      [ -z "$DOMAIN" ] || target="--api-domain ${name}-api.${DOMAIN} --admin-domain ${name}-admin.${DOMAIN}"
+      instance_lines+=("--name $name $target --api-port $port --admin-port $((port + 1))")
+      port=$((port + 2))
+    done
+  fi
+  [ ${#instance_lines[@]} -gt 0 ] || err "No instances given."
+
+  seen_names=" "
+  for line in "${instance_lines[@]}"; do
+    split_line "$line"
+    [ -n "$instance_name" ] || err "Every instance needs --name: $line"
+    [[ "$seen_names" == *" $instance_name "* ]] && err "Duplicate instance name: $instance_name"
+    seen_names+="$instance_name "
+  done
+
+  succeeded=()
+  failed=()
+  for line in "${instance_lines[@]}"; do
+    split_line "$line"
+    log "=== Instance: $instance_name ==="
+    if "$BASH" "$0" ${common_args[@]+"${common_args[@]}"} "${line_args[@]}"; then
+      succeeded+=("$instance_name")
+    else
+      failed+=("$instance_name")
+      warn "Instance $instance_name failed — continuing with the next one."
+    fi
+  done
+
+  log "Instances deployed: ${succeeded[*]:-none}"
+  [ ${#failed[@]} -eq 0 ] || err "Instances failed: ${failed[*]}"
+  exit 0
+fi
+
+validate_instance_name "$NAME"
+[ -n "$DEPLOY_DIR" ] || DEPLOY_DIR="${HOME:-.}/${NAME}"
+[ "$API_PORT" != "$ADMIN_PORT" ] || err "--api-port and --admin-port must differ."
+log "Instance: $NAME (survey-api:${API_TAG}, survey-admin-panel:${ADMIN_TAG})"
+
+# ---------------------------------------------------------------------------
 # Resolve target (domain vs IP)
 # ---------------------------------------------------------------------------
-if [ -z "$DOMAIN" ] && [ -z "$IP" ]; then
-  if is_tty; then
-    read -r -p "Public domain (leave empty to use a bare IP instead): " DOMAIN
-    if [ -z "$DOMAIN" ]; then
-      prompt_value IP "Server public IP"
-    fi
-  else
-    err "Pass --domain or --ip (see --help)."
-  fi
+if [ -z "$DOMAIN" ] && { [ -n "$API_DOMAIN" ] || [ -n "$ADMIN_DOMAIN" ]; }; then
+  [ -n "$API_DOMAIN" ] && [ -n "$ADMIN_DOMAIN" ] || err "Without --domain, pass both --api-domain and --admin-domain."
+  DOMAIN="$API_DOMAIN"
 fi
-[ -n "$DOMAIN" ] && [ -n "$IP" ] && err "Pass only one of --domain / --ip."
+
+prompt_target
 
 if [ -n "$DOMAIN" ]; then
-  API_DOMAIN="api.${DOMAIN}"
-  ADMIN_DOMAIN="admin.${DOMAIN}"
+  API_DOMAIN="${API_DOMAIN:-api.${DOMAIN}}"
+  ADMIN_DOMAIN="${ADMIN_DOMAIN:-admin.${DOMAIN}}"
   API_URL="https://${API_DOMAIN}"
 else
   SKIP_NGINX=true
@@ -258,6 +415,10 @@ else
   fi
 fi
 
+if [ -z "$JWT_KEY" ] && [ -f "$DEPLOY_DIR/.env" ]; then
+  # Reuse the key from a previous run — a new one would log out every respondent.
+  JWT_KEY="$(sed -n 's/^JWT_KEY=//p' "$DEPLOY_DIR/.env")"
+fi
 if [ -z "$JWT_KEY" ]; then
   JWT_KEY="$(generate_secret)"
   log "Generated JWT_KEY (also saved in .env — back it up, rotating it invalidates all sessions)."
@@ -288,6 +449,18 @@ if ! docker version >/dev/null 2>&1; then
   $DOCKER version >/dev/null 2>&1 || err "Cannot run docker (even with sudo). Check the Docker install / your permissions."
 fi
 $DOCKER compose version >/dev/null 2>&1 || err "Docker Compose plugin not found (need 'docker compose', not the standalone 'docker-compose')."
+
+port_taken_by_other() {
+  local port=$1
+  require_cmd ss || return 1
+  ss -ltnH "( sport = :$port )" | grep -q . || return 1
+  ! $DOCKER ps --filter "label=com.docker.compose.project=$NAME" --format '{{.Ports}}' | grep -q ":$port->"
+}
+for port in "$API_PORT" "$ADMIN_PORT"; do
+  if port_taken_by_other "$port"; then
+    err "Port $port is already used by something other than instance '$NAME' — pick another with --api-port/--admin-port."
+  fi
+done
 
 # ---------------------------------------------------------------------------
 # Write deploy directory: compose file, data dirs, .env
@@ -327,7 +500,7 @@ services:
     restart: unless-stopped
 
   api:
-    image: ghcr.io/geosenesm/survey-api:prod
+    image: ghcr.io/geosenesm/survey-api:${API_TAG:-prod}
     pull_policy: always
     ports:
       - "${API_PORT:-8083}:8080"
@@ -351,7 +524,7 @@ services:
     restart: unless-stopped
 
   admin-panel:
-    image: ghcr.io/geosenesm/survey-admin-panel:prod
+    image: ghcr.io/geosenesm/survey-admin-panel:${ADMIN_TAG:-prod}
     pull_policy: always
     depends_on:
       - api
@@ -374,7 +547,7 @@ services:
     restart: unless-stopped
 
   api:
-    image: ghcr.io/geosenesm/survey-api:prod
+    image: ghcr.io/geosenesm/survey-api:${API_TAG:-prod}
     pull_policy: always
     depends_on:
       - mongo
@@ -397,7 +570,7 @@ services:
     restart: unless-stopped
 
   admin-panel:
-    image: ghcr.io/geosenesm/survey-admin-panel:prod
+    image: ghcr.io/geosenesm/survey-admin-panel:${ADMIN_TAG:-prod}
     pull_policy: always
     depends_on:
       - api
@@ -416,6 +589,9 @@ fi
 ENV_FILE="$DEPLOY_DIR/.env"
 {
   echo "# Generated by deploy.sh on $(date -u +%FT%TZ) — treat as a secret, do not commit."
+  echo "COMPOSE_PROJECT_NAME=${NAME}"
+  echo "API_TAG=${API_TAG}"
+  echo "ADMIN_TAG=${ADMIN_TAG}"
   echo "JWT_KEY=${JWT_KEY}"
   echo "JWT_EXPIRATION=${JWT_EXPIRATION}"
   echo "ADMIN_USER_PASSWORD=${ADMIN_PASSWORD}"
@@ -503,9 +679,9 @@ NGINX_EOF
     "$NGINX_CONF"
 
   sudo mkdir -p /etc/nginx/sites-available /etc/nginx/sites-enabled
-  sudo cp "$NGINX_CONF" /etc/nginx/sites-available/geosenesm
+  sudo cp "$NGINX_CONF" "/etc/nginx/sites-available/${NAME}"
   rm -f "$NGINX_CONF"
-  sudo ln -sf /etc/nginx/sites-available/geosenesm /etc/nginx/sites-enabled/geosenesm
+  sudo ln -sf "/etc/nginx/sites-available/${NAME}" "/etc/nginx/sites-enabled/${NAME}"
 
   if ! sudo grep -q 'connection_upgrade' /etc/nginx/nginx.conf 2>/dev/null; then
     MAP_SNIPPET=$(mktemp)
@@ -579,6 +755,7 @@ fi
 # ---------------------------------------------------------------------------
 log "Done."
 echo
+echo "  Instance:    $NAME (survey-api:${API_TAG}, survey-admin-panel:${ADMIN_TAG})"
 if [ -n "$DOMAIN" ]; then
   scheme="http"; [ "$SKIP_TLS" != true ] && scheme="https"
   echo "  Admin panel: ${scheme}://${ADMIN_DOMAIN}"
@@ -593,5 +770,5 @@ echo
 echo "Day-2 commands (run from $DEPLOY_DIR):"
 echo "  $DOCKER compose ps"
 echo "  $DOCKER compose logs -f api"
-echo "  $DOCKER compose pull && $DOCKER compose up -d   # upgrade to newer :prod images"
+echo "  $DOCKER compose pull && $DOCKER compose up -d   # upgrade to newer :${API_TAG}/:${ADMIN_TAG} images"
 echo "  $DOCKER compose down                            # stop (keeps data)"
